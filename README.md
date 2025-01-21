@@ -6,7 +6,9 @@ A real-time monitoring tool for Kubernetes workload disruptions, focusing on con
 
 ## Features
 
-- Real-time monitoring of container terminations
+- Real-time monitoring of workload disruption due to nongraceful container terminations:
+  - Forced termination by OOM-killer
+  - Forced termination by kubelet (SIGKILL) after grace period (e.g., due to lack of graceful termination, or too short grace period)
 - Basic web interface with:
   - View of all workloads (Note: currently xlimited to Deployments in the 'default' namespace), with their disruption statistics, by disruption types (OOM, Non-graceful terminations)
   - Basic filtering, sorting
