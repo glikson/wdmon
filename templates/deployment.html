@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ name }} - Disruption Details</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        tr:hover { background-color: #f5f5f5; }
+        .back { margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="back"><a href="/">← Back to overview</a></div>
+    <h1>{{ name }} - Disruption Details</h1>
+    <table>
+        <tr>
+            <th>Time</th>
+            <th>Pod</th>
+            <th>Container</th>
+            <th>Reason</th>
+        </tr>
+        {% for disruption in disruptions %}
+        <tr>
+            <td>{{ disruption.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+            <td>{{ disruption.pod }}</td>
+            <td>{{ disruption.container }}</td>
+            <td>{{ disruption.reason }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>

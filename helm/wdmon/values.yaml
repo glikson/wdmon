@@ -12,3 +12,16 @@ resources:
   requests:
     cpu: 100m
     memory: 128Mi
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  hosts:
+    - host: wdmon.local
+      paths:
+        - path: /
+          pathType: Prefix
