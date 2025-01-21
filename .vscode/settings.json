@@ -1,3 +1,4 @@
 {
-    "python.globalModuleInstallation": true
+    "python.globalModuleInstallation": true,
+    "makefile.configureOnOpen": false
 }

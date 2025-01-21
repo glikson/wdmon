@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-wdmon
+  labels:
+    app: wdmon
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: wdmon
+  template:
+    metadata:
+      labels:
+        app: wdmon
+    spec:
+      serviceAccountName: {{ .Release.Name }}-wdmon
+      containers:
+        - name: wdmon
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
