@@ -83,9 +83,15 @@ def index():
     deployments = apps_v1.list_namespaced_deployment(namespace='default')
     stats = []
     for dep in deployments.items:
+        dep_disruptions = disruptions[dep.metadata.name]
+        last_disruption = max((d['timestamp'] for d in dep_disruptions), default=None) if dep_disruptions else None
         stats.append({
             'name': dep.metadata.name,
-            'disruption_count': len(disruptions[dep.metadata.name]),
+            'oom_count': sum(1 for d in dep_disruptions if d['reason'] == 'OOMKilled'),
+            'termination_count': sum(1 for d in dep_disruptions if d['reason'] == 'Non-graceful termination'),
+            'total_count': len(dep_disruptions),
+            'last_disruption': last_disruption,
+            'status': 'Disrupted' if dep_disruptions else 'Healthy'
         })
     return render_template('index.html', stats=stats)
 

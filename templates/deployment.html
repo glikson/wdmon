@@ -2,32 +2,96 @@
 <html>
 <head>
     <title>{{ name }} - Disruption Details</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { font-family: Arial, sans-serif; margin: 40px; }
         table { border-collapse: collapse; width: 100%; }
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
         tr:hover { background-color: #f5f5f5; }
         .back { margin-bottom: 20px; }
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            color: var(--text-muted);
+            font-weight: 500;
+            margin-bottom: 1rem;
+            border-radius: 0.5rem;
+            transition: all 0.2s ease;
+        }
+        .back-link:hover {
+            background: color-mix(in srgb, var(--card-bg) 95%, var(--primary-color) 5%);
+            color: var(--primary-color);
+        }
+        .back-link:before {
+            content: "←";
+            margin-right: 0.5rem;
+            font-size: 1.2em;
+            line-height: 1;
+        }
+        .time-col {
+            font-family: ui-monospace, monospace;
+            white-space: nowrap;
+            color: var(--text-muted);
+        }
+        .reason-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.375rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+        .reason-oom {
+            background: var(--warning-bg);
+            color: var(--warning-text);
+        }
+        .reason-termination {
+            background: var(--success-bg);
+            color: var(--success-text);
+        }
+        .empty-state {
+            padding: 3rem;
+            text-align: center;
+            color: var(--text-muted);
+        }
     </style>
 </head>
 <body>
-    <div class="back"><a href="/">← Back to overview</a></div>
-    <h1>{{ name }} - Disruption Details</h1>
-    <table>
-        <tr>
-            <th>Time</th>
-            <th>Pod</th>
-            <th>Container</th>
-            <th>Reason</th>
-        </tr>
-        {% for disruption in disruptions %}
-        <tr>
-            <td>{{ disruption.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-            <td>{{ disruption.pod }}</td>
-            <td>{{ disruption.container }}</td>
-            <td>{{ disruption.reason }}</td>
-        </tr>
-        {% endfor %}
-    </table>
+    <div class="header">
+        <h1>{{ name }}</h1>
+    </div>
+    <div class="container">
+        <a href="/" class="back-link">Back to overview</a>
+        <div class="card">
+            {% if disruptions %}
+            <table>
+                <tr>
+                    <th>Time</th>
+                    <th>Pod</th>
+                    <th>Container</th>
+                    <th>Reason</th>
+                </tr>
+                {% for disruption in disruptions %}
+                <tr>
+                    <td class="time-col">{{ disruption.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                    <td>{{ disruption.pod }}</td>
+                    <td>{{ disruption.container }}</td>
+                    <td>
+                        <span class="reason-badge {% if disruption.reason == 'OOMKilled' %}reason-oom{% else %}reason-termination{% endif %}">
+                            {{ disruption.reason }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+            {% else %}
+            <div class="empty-state">
+                No disruptions recorded for this deployment
+            </div>
+            {% endif %}
+        </div>
+    </div>
 </body>
 </html>
