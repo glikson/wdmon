@@ -14,7 +14,7 @@ A real-time monitoring tool for Kubernetes workload disruptions, focusing on con
   - Basic filtering, sorting
   - Detailed view of disruption history per workload
 
-## Build and Push
+## (Optional) Build and Push
 
 1. Build and push the Docker image:
     ```bash
@@ -33,21 +33,17 @@ A real-time monitoring tool for Kubernetes workload disruptions, focusing on con
 
 ### Using Helm
 
-NOTE: the instructions below assume that glikson/wdmon image is used (can be overriden)
+NOTE: the instructions below assume that glikson/wdmon image is used (can be overriden using '--set image.repository')
+
+1. Clone the repo
+    ```bash
+    git clone https://github.com/glikson/wdmon.git
+    cd wdmon
+    ```
 
 1. Install the chart:
     ```bash
     helm install wdmon ./helm/wdmon
-    ```
-
-2. To install in a specific namespace:
-    ```bash
-    helm install wdmon ./helm/wdmon -n monitoring --create-namespace
-    ```
-
-3. To override the image tag:
-    ```bash
-    helm install wdmon ./helm/wdmon --set image.tag=1.0.0
     ```
 
 ### Local
@@ -58,6 +54,11 @@ NOTE: the instructions below assume that glikson/wdmon image is used (can be ove
     ```
 
 ## How to test
+
+1. The Web UI is available on port :8080 (localhost if run locally, or via the 'wdmon' service if deployed in a Kubernetes cluster).
+    ```
+    kubectl port-forward svc/wdmon-wdmon 8080:8080
+    ```
 
 1. Use the attached wdtest.yaml to run the test Deployment:
     ```
@@ -83,3 +84,4 @@ NOTE: the instructions below assume that glikson/wdmon image is used (can be ove
     ```
     Container test-container in wdtest-854bd59d47-pl8qz exited with 137 (OOMKilled).
     ```
+    
