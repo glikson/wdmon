@@ -2,6 +2,8 @@
 
 A real-time monitoring tool for Kubernetes workload disruptions, focusing on containers terminated by SIGKILL (exit code 137). It helps identify and distinguish between OOM kills and non-graceful terminations due to grace period expiration.
 
+![Workload Disruption Monitor Interface](wdmon.png)
+
 ## Features
 
 - Real-time monitoring of container terminations
