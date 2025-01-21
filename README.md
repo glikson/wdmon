@@ -1,6 +1,14 @@
 # wdmon - Kubernetes Workload Disruption Monitor
 
-This tool monitors Kubernetes Pods, to detect containers terminated by SIGKILL rather than the graceful SIGTERM, helping identify unexpected disruptions in workloads. The goal is to distinguish between unexpected terminations due to OOM and terminations due to termination grace period expiration.
+A real-time monitoring tool for Kubernetes workload disruptions, focusing on containers terminated by SIGKILL (exit code 137). It helps identify and distinguish between OOM kills and non-graceful terminations due to grace period expiration.
+
+## Features
+
+- Real-time monitoring of container terminations
+- Basic web interface with:
+  - View of all workloads (Note: currently xlimited to Deployments in the 'default' namespace), with their disruption statistics, by disruption types (OOM, Non-graceful terminations)
+  - Basic filtering, sorting
+  - Detailed view of disruption history per workload
 
 ## Build and Push
 

@@ -1,7 +1,7 @@
 import time
 from kubernetes import client, config, watch
 import logging
-from flask import Flask, render_template
+from flask import Flask, render_template, send_from_directory
 from threading import Thread
 from collections import defaultdict
 import datetime
@@ -15,7 +15,7 @@ logging.basicConfig(
     stream=sys.stdout
 )
 
-app = Flask(__name__)
+app = Flask(__name__, static_url_path='/static', static_folder='static')
 
 # Store disruptions in memory
 disruptions = defaultdict(list)
@@ -24,11 +24,12 @@ def track_disruption(deployment_name, container_name, pod_name, reason, timestam
     msg = f"Container {container_name} in {pod_name} exited with 137 ({reason})"
     print(msg)  # Print to stdout
     logger.info(msg)  # Log to logger
+    # Store timestamp as string immediately
     disruptions[deployment_name].append({
         'container': container_name,
         'pod': pod_name,
         'reason': reason,
-        'timestamp': timestamp
+        'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S')
     })
 
 def get_deployment_for_pod(v1, pod):
@@ -84,7 +85,14 @@ def index():
     stats = []
     for dep in deployments.items:
         dep_disruptions = disruptions[dep.metadata.name]
-        last_disruption = max((d['timestamp'] for d in dep_disruptions), default=None) if dep_disruptions else None
+        
+        # Find the latest disruption timestamp
+        if dep_disruptions:
+            # Compare string timestamps (they're in sortable format)
+            last_disruption = max(d['timestamp'] for d in dep_disruptions)
+        else:
+            last_disruption = None
+
         stats.append({
             'name': dep.metadata.name,
             'oom_count': sum(1 for d in dep_disruptions if d['reason'] == 'OOMKilled'),
@@ -97,9 +105,13 @@ def index():
 
 @app.route('/deployment/<name>')
 def deployment_details(name):
-    return render_template('deployment.html', 
-                         name=name, 
-                         disruptions=disruptions[name])
+    disruptions_list = sorted(
+        disruptions[name],
+        key=lambda x: x['timestamp'],
+        reverse=True
+    )
+    # No need to convert timestamps as they're already strings
+    return {'disruptions': disruptions_list}
 
 @app.route('/healthz')
 def healthz():

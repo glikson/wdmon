@@ -15,10 +15,12 @@ spec:
         app: wdmon
     spec:
       serviceAccountName: {{ .Release.Name }}-wdmon
+      terminationGracePeriodSeconds: 10
       containers:
         - name: wdmon
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          terminationMessagePath: /dev/termination-log
           ports:
             - containerPort: 8080
               protocol: TCP
