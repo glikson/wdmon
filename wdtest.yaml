@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wdtest
+  labels:
+    app: wdtest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wdtest
+  template:
+    metadata:
+      labels:
+        app: wdtest
+    spec:
+      terminationGracePeriodSeconds: 5
+      containers:
+      - name: test-container
+        image: busybox
+        command: ["sh", "-c", "while true; do if [ -e /tmp/oom ]; then rm /tmp/oom; exec tail /dev/zero; fi; sleep 10; done"]
+        resources:
+          requests:
+            memory: "16Mi"
+          limits:
+            memory: "16Mi"
