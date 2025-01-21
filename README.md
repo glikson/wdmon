@@ -4,7 +4,7 @@ This tool monitors Kubernetes Pods, to detect containers terminated by SIGKILL r
 
 ## How to test
 
-1. Run wdmon:
+1. Run wdmon (from a shell with configured kubeconfig):
 ```
 python wdmon.py
 ```
@@ -21,7 +21,7 @@ kubectl delete pod -l app=wdtest
 ```
 Expected output of wdmon:
 ```
-Container test-container in wdtest-854bd59d47-ngcg9 exited with 137 (OOMKilled).
+Container test-container in wdtest-854bd59d47-xb6mv exited with 137 (Error) - likely due to non-graceful termination.
 ```
 
 Test SIGTERM due to OOM by triggering memory-intesive logic in the container, by creating a file via executing a 'touch' command:
