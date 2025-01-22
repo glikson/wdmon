@@ -12,9 +12,9 @@ A tool for real-time monitoring of Kubernetes workload disruptions, such as non-
   - Forced termination by OOM-killer (Notice that with cgroups v2, this will happen only when the main container process is OOM-killed, because when a child process is OOM-killed the container remains running)
   - Forced termination by kubelet (SIGKILL) after grace period (e.g., because SIGTERM is not forwarded to child processes, or because the termination grace period is too short)
 - Basic web interface with:
-  - View of all workloads (Note: currently limited to Deployments in the 'default' namespace), with their disruption statistics, by disruption types (OOM, Non-graceful terminations)
+  - View of all workloads, with their disruption statistics, by disruption types (OOM, Non-graceful terminations)
   - Basic filtering, sorting
-  - Detailed view of disruption history per workload
+  - Drill-down to view the disruption history per workload
 
 ## (Optional) Build and Push
 
