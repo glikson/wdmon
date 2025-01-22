@@ -1,7 +1,7 @@
 let activeFilter = localStorage.getItem('activeFilter') || 'all';
 let currentSort = JSON.parse(localStorage.getItem('currentSort')) || { column: null, ascending: true };
 
-// Auto-refresh the page every 10 seconds
+// Auto-refresh the page every 5 seconds
 setInterval(() => {
     const oldBody = document.querySelector('tbody').innerHTML;
     const detailsVisible = document.getElementById('details-section').classList.contains('visible');
@@ -28,32 +28,41 @@ setInterval(() => {
                 showDetails(deploymentName);
             }
         });
-}, 10000);
+}, 5000);
+
+function applyFilters() {
+    const rows = document.querySelectorAll('tbody tr');
+    const namespaceFilter = document.getElementById('namespaceFilter').value.toLowerCase();
+    const typeFilter = document.getElementById('typeFilter').value;
+    const workloadFilter = document.getElementById('workloadFilter').value.toLowerCase();
+    const statusFilter = activeFilter;
+
+    rows.forEach(row => {
+        const namespace = row.cells[0].textContent.toLowerCase();
+        const type = row.cells[1].textContent;
+        const workload = row.cells[2].textContent.toLowerCase();
+        const oomCount = parseInt(row.querySelector('.count-oom').textContent);
+        const termCount = parseInt(row.querySelector('.count-term').textContent);
+        const total = oomCount + termCount;
+
+        const matchesNamespace = !namespaceFilter || namespace.includes(namespaceFilter);
+        const matchesType = !typeFilter || type === typeFilter;
+        const matchesWorkload = !workloadFilter || workload.includes(workloadFilter);
+        const matchesStatus = statusFilter === 'all' ||
+            (statusFilter === 'disrupted' && total > 0) ||
+            (statusFilter === 'oom' && oomCount > 0) ||
+            (statusFilter === 'termination' && termCount > 0);
+
+        row.style.display = (matchesNamespace && matchesType && matchesWorkload && matchesStatus) ? '' : 'none';
+    });
+}
 
 function filterRows(filter) {
     activeFilter = filter;
     localStorage.setItem('activeFilter', filter);
-    const rows = document.querySelectorAll('tbody tr');
     const buttons = document.querySelectorAll('.filter-button');
-    
-    buttons.forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.filter === filter);
-    });
-
-    rows.forEach(row => {
-        const counts = {
-            oom: parseInt(row.querySelector('.count-oom').textContent),
-            term: parseInt(row.querySelector('.count-term').textContent)
-        };
-        const total = counts.oom + counts.term;
-
-        row.style.display = (
-            filter === 'all' ||
-            (filter === 'disrupted' && total > 0) ||
-            (filter === 'oom' && counts.oom > 0) ||
-            (filter === 'termination' && counts.term > 0)
-        ) ? '' : 'none';
-    });
+    buttons.forEach(btn => btn.classList.toggle('active', btn.dataset.filter === filter));
+    applyFilters();
 }
 
 function sortTable(columnIndex, toggleDirection = true) {
@@ -113,14 +122,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-function showDetails(deploymentName) {
+function showDetails(workloadKey) {
     const detailsSection = document.getElementById('details-section');
-    fetch(`/deployment/${deploymentName}`)
+    fetch(`/workload/${encodeURIComponent(workloadKey)}`)
         .then(response => response.json())
         .then(data => {
-            // Update title
+            // Update title and process namespace/type/name
+            const [namespace, type, name] = workloadKey.split('/');
             detailsSection.querySelector('.details-title').textContent = 
-                `Disruption Details: ${deploymentName}`;
+                `Disruption Details: ${namespace}/${name} (${type})`;
             
             const tbody = detailsSection.querySelector('tbody');
             tbody.innerHTML = '';

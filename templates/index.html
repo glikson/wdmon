@@ -7,46 +7,55 @@
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
-    <div class="refresh-indicator">
-        <i class="fas fa-sync"></i> Auto-refresh: 10s
-    </div>
     <div class="header">
         <div class="title-container">
-            <div class="logo">
+            <div class="logo-container">
                 <i class="fas fa-bell main-icon"></i>
-                <i class="fas fa-dharmachakra sub-icon"></i>
+                <i class="fas fa-dharmachakra k8s-icon"></i>
             </div>
-            <div class="title-text">
-                <h1>Workload Disruption Monitor</h1>
-                <div class="subtitle">
-                    <i class="fas fa-chart-line"></i> Monitor and track Kubernetes workload disruptions
-                </div>
+            <h1>Workload Disruption Monitor</h1>
+            <div class="refresh-indicator">
+                <i class="fas fa-sync"></i> 5s
             </div>
         </div>
     </div>
 
     <div class="container">
         <div class="filters">
-            <button class="filter-button active" data-filter="all" onclick="filterRows('all')">
-                <i class="fas fa-globe"></i> All
-            </button>
-            <button class="filter-button" data-filter="disrupted" onclick="filterRows('disrupted')">
-                <i class="fas fa-exclamation-circle"></i> Disrupted Only
-            </button>
-            <button class="filter-button" data-filter="oom" onclick="filterRows('oom')">
-                <i class="fas fa-memory"></i> OOM Issues
-            </button>
-            <button class="filter-button" data-filter="termination" onclick="filterRows('termination')">
-                <i class="fas fa-stop-circle"></i> Termination Issues
-            </button>
+            <div class="filter-group">
+                <button class="filter-button active" data-filter="all" onclick="filterRows('all')">
+                    <i class="fas fa-globe"></i> All
+                </button>
+                <button class="filter-button" data-filter="disrupted" onclick="filterRows('disrupted')">
+                    <i class="fas fa-exclamation-circle"></i> Disrupted Only
+                </button>
+                <button class="filter-button" data-filter="oom" onclick="filterRows('oom')">
+                    <i class="fas fa-memory"></i> OOM Issues
+                </button>
+                <button class="filter-button" data-filter="termination" onclick="filterRows('termination')">
+                    <i class="fas fa-stop-circle"></i> Termination Issues
+                </button>
+            </div>
+            <div class="filter-group">
+                <input type="text" id="workloadFilter" class="text-filter" placeholder="Filter workload..." onkeyup="applyFilters()">
+                <input type="text" id="namespaceFilter" class="text-filter" placeholder="Filter namespace..." onkeyup="applyFilters()">
+                <select id="typeFilter" onchange="applyFilters()">
+                    <option value="">All types</option>
+                    <option value="Deployment">Deployments</option>
+                    <option value="StatefulSet">StatefulSets</option>
+                    <option value="DaemonSet">DaemonSets</option>
+                </select>
+            </div>
         </div>
 
         <table>
             <thead>
                 <tr>
-                    <th>Workload</th>
+                    <th class="sortable" onclick="sortTable(0)">Namespace</th>
+                    <th class="sortable" onclick="sortTable(1)">Type</th>
+                    <th class="sortable" onclick="sortTable(2)">Workload</th>
                     <th>Status</th>
-                    <th class="sortable" onclick="sortTable(2)">Last Disruption</th>
+                    <th class="sortable" onclick="sortTable(4)">Last Disruption</th>
                     <th>OOM Kills</th>
                     <th>Non-graceful Terminations</th>
                     <th>Total</th>
@@ -54,22 +63,16 @@
             </thead>
             <tbody>
                 {% for stat in stats %}
-                <tr>
-                    <td><a href="#" onclick="showDetails('{{ stat.name }}'); return false;">{{ stat.name }}</a></td>
+                <tr class="clickable-row" onclick="showDetails('{{ stat.key }}')">
+                    <td>{{ stat.namespace }}</td>
+                    <td>{{ stat.type }}</td>
+                    <td>{{ stat.workload_name }}</td>
                     <td>
-                        {% if stat.total_count > 0 %}
-                        <span class="status-badge status-warning">Disrupted</span>
-                        {% else %}
-                        <span class="status-badge status-ok">Healthy</span>
-                        {% endif %}
+                        <span class="status-badge status-{{ 'warning' if stat.total_count > 0 else 'ok' }}">
+                            {{ stat.status }}
+                        </span>
                     </td>
-                    <td class="last-disruption">
-                        {% if stat.last_disruption %}
-                            {{ stat.last_disruption }}
-                        {% else %}
-                            -
-                        {% endif %}
-                    </td>
+                    <td class="last-disruption">{{ stat.last_disruption or '-' }}</td>
                     <td class="count count-oom">{{ stat.oom_count }}</td>
                     <td class="count count-term">{{ stat.termination_count }}</td>
                     <td class="count">{{ stat.total_count }}</td>

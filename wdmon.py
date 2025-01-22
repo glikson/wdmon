@@ -22,9 +22,6 @@ logging.basicConfig(
 
 app = Flask(__name__, static_url_path='/static', static_folder='static')
 
-# Add schema version - increment this when schema changes
-SCHEMA_VERSION = 1
-
 def is_running_in_kubernetes():
     """Check if running inside Kubernetes by looking for service account token."""
     return os.path.exists('/var/run/secrets/kubernetes.io/serviceaccount/token')
@@ -135,7 +132,8 @@ def track_disruption(deployment_name, container_name, pod_name, reason, timestam
     
     event_store.add_event(deployment_name, event)
 
-def get_deployment_for_pod(v1, pod):
+def get_workload_info(v1, pod):
+    """Get workload info from pod's owner references."""
     owner_references = pod.metadata.owner_references or []
     for owner in owner_references:
         if owner.kind == 'ReplicaSet':
@@ -144,7 +142,11 @@ def get_deployment_for_pod(v1, pod):
             if rs.metadata.owner_references:
                 for rs_owner in rs.metadata.owner_references:
                     if rs_owner.kind == 'Deployment':
-                        return rs_owner.name
+                        return {'type': 'Deployment', 'name': rs_owner.name, 'namespace': pod.metadata.namespace}
+        elif owner.kind == 'StatefulSet':
+            return {'type': 'StatefulSet', 'name': owner.name, 'namespace': pod.metadata.namespace}
+        elif owner.kind == 'DaemonSet':
+            return {'type': 'DaemonSet', 'name': owner.name, 'namespace': pod.metadata.namespace}
     return None
 
 def init_kubernetes_client():
@@ -161,26 +163,26 @@ def watch_pods(v1):
     while not shutdown_requested:
         w = watch.Watch()
         try:
-            logger.info("Starting to watch pods in default namespace")
-            for event in w.stream(v1.list_namespaced_pod, namespace='default'):
+            logger.info("Starting to watch pods in all namespaces")
+            for event in w.stream(v1.list_pod_for_all_namespaces):
                 if shutdown_requested:
                     logger.info("Shutdown requested, stopping pod watch")
                     break
                 if event["type"] == "MODIFIED":
                     pod = event["object"]
-                    deployment_name = get_deployment_for_pod(v1, pod)
-                    if deployment_name:
+                    workload = get_workload_info(v1, pod)
+                    if workload:
                         for cs in pod.status.container_statuses or []:
                             if cs.state.terminated and cs.state.terminated.exit_code == 137:
                                 timestamp = datetime.datetime.now()
                                 if cs.state.terminated.reason == "OOMKilled":
-                                    track_disruption(deployment_name, cs.name, pod.metadata.name, 
-                                                   "OOMKilled", timestamp)
+                                    track_disruption(f"{workload['namespace']}/{workload['type']}/{workload['name']}", 
+                                                   cs.name, pod.metadata.name, "OOMKilled", timestamp)
                                 elif (cs.state.terminated.reason == "Error" and 
                                       pod.metadata.deletion_timestamp and 
                                       pod.metadata.deletion_grace_period_seconds == 0):
-                                    track_disruption(deployment_name, cs.name, pod.metadata.name,
-                                                   "Non-graceful termination", timestamp)
+                                    track_disruption(f"{workload['namespace']}/{workload['type']}/{workload['name']}", 
+                                                   cs.name, pod.metadata.name, "Non-graceful termination", timestamp)
         except Exception as e:
             logger.error(f"Error watching pods: {e}")
             time.sleep(5)
@@ -188,32 +190,45 @@ def watch_pods(v1):
 @app.route('/')
 def index():
     apps_v1 = client.AppsV1Api()
-    deployments = apps_v1.list_namespaced_deployment(namespace='default')
     stats = []
-    for dep in deployments.items:
-        dep_disruptions = event_store.get_events(dep.metadata.name)
+    
+    for ns in client.CoreV1Api().list_namespace().items:
+        namespace = ns.metadata.name
         
-        # Find the latest disruption timestamp
-        if dep_disruptions:
-            # Compare string timestamps (they're in sortable format)
-            last_disruption = max(d['timestamp'] for d in dep_disruptions)
-        else:
-            last_disruption = None
+        # Get all workload types
+        for workload_type, api_func in {
+            'Deployment': apps_v1.list_namespaced_deployment,
+            'StatefulSet': apps_v1.list_namespaced_stateful_set,
+            'DaemonSet': apps_v1.list_namespaced_daemon_set
+        }.items():
+            for workload in api_func(namespace=namespace).items:
+                workload_key = f"{namespace}/{workload_type}/{workload.metadata.name}"
+                stats.append(get_workload_stats(workload_key, namespace, workload_type, workload.metadata.name))
+    
+    return render_template('index.html', stats=sorted(stats, key=lambda x: (x['namespace'], x['type'], x['workload_name'])))
 
-        stats.append({
-            'name': dep.metadata.name,
-            'oom_count': sum(1 for d in dep_disruptions if d['reason'] == 'OOMKilled'),
-            'termination_count': sum(1 for d in dep_disruptions if d['reason'] == 'Non-graceful termination'),
-            'total_count': len(dep_disruptions),
-            'last_disruption': last_disruption,
-            'status': 'Disrupted' if dep_disruptions else 'Healthy'
-        })
-    return render_template('index.html', stats=stats)
+def get_workload_stats(workload_key, namespace, workload_type, workload_name):
+    """Get disruption stats for a workload."""
+    dep_disruptions = event_store.get_events(workload_key)
+    last_disruption = max((d['timestamp'] for d in dep_disruptions), default=None) if dep_disruptions else None
+    
+    return {
+        'key': workload_key,
+        'namespace': namespace,
+        'type': workload_type,
+        'workload_name': workload_name,
+        'oom_count': sum(1 for d in dep_disruptions if d['reason'] == 'OOMKilled'),
+        'termination_count': sum(1 for d in dep_disruptions if d['reason'] == 'Non-graceful termination'),
+        'total_count': len(dep_disruptions),
+        'last_disruption': last_disruption,
+        'status': 'Disrupted' if dep_disruptions else 'Healthy'
+    }
 
-@app.route('/deployment/<name>')
-def deployment_details(name):
+@app.route('/workload/<path:key>')
+def workload_details(key):
+    """Handle workload details with namespace/type/name path."""
     disruptions_list = sorted(
-        event_store.get_events(name),
+        event_store.get_events(key),
         key=lambda x: x['timestamp'],
         reverse=True
     )
