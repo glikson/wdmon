@@ -164,3 +164,59 @@ function hideDetails() {
 function hideDrawer() {
     document.getElementById('details-drawer').classList.remove('open');
 }
+
+function showConfig() {
+    fetch('/settings')
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('retention').value = data.retention_hours;
+            document.getElementById('config-modal').classList.add('visible');
+        });
+}
+
+function hideConfig() {
+    document.getElementById('config-modal').classList.remove('visible');
+}
+
+function saveConfig() {
+    const retention = parseInt(document.getElementById('retention').value);
+    fetch('/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({retention_hours: retention})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'ok') {
+            hideConfig();
+        }
+    });
+}
+
+function showSettings() {
+    fetch('/settings')
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('retention').value = data.retention_hours;
+            document.getElementById('settings-modal').classList.add('visible');
+        });
+}
+
+function hideSettings() {
+    document.getElementById('settings-modal').classList.remove('visible');
+}
+
+function saveSettings() {
+    const retention = parseInt(document.getElementById('retention').value);
+    fetch('/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({retention_hours: retention})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'ok') {
+            hideSettings();
+        }
+    });
+}

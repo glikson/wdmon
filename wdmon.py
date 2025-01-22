@@ -1,7 +1,8 @@
 import time
 from kubernetes import client, config, watch
+from kubernetes.config import ConfigException
 import logging
-from flask import Flask, render_template, send_from_directory
+from flask import Flask, render_template, send_from_directory, request
 from threading import Thread, Event
 from collections import defaultdict
 import datetime
@@ -29,13 +30,44 @@ def is_running_in_kubernetes():
 class EventStore:
     def __init__(self, data_dir: str = None):
         if data_dir is None:
-            # Use current directory for local development, /data for kubernetes
             data_dir = '/data' if is_running_in_kubernetes() else '/tmp'
             logger.info(f"Using {data_dir} directory for persistence")
         
         self.data_file = os.path.join(data_dir, 'disruptions.json')
+        self.settings_file = os.path.join(data_dir, 'settings.json')
         self.disruptions: Dict[str, List[dict]] = defaultdict(list)
+        self.retention_hours = self.load_settings().get('retention_hours', 336)  # 2 weeks default
         self.load_data()
+
+    def load_settings(self) -> dict:
+        """Load settings from file."""
+        try:
+            if os.path.exists(self.settings_file):
+                with open(self.settings_file, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            logger.error(f'Error loading settings: {e}')
+        return {}
+
+    def save_settings(self):
+        """Save settings to file."""
+        try:
+            settings = {'retention_hours': self.retention_hours}
+            with open(self.settings_file, 'w') as f:
+                json.dump(settings, f)
+        except Exception as e:
+            logger.error(f'Error saving settings: {e}')
+
+    def cleanup_old_events(self):
+        """Remove events older than retention period."""
+        cutoff_time = datetime.datetime.now() - datetime.timedelta(hours=self.retention_hours)
+        cutoff_str = cutoff_time.strftime('%Y-%m-%d %H:%M:%S')
+        
+        for deployment in self.disruptions:
+            self.disruptions[deployment] = [
+                event for event in self.disruptions[deployment]
+                if event['timestamp'] > cutoff_str
+            ]
 
     def load_data(self):
         """Load disruption data from file, ignore records with unrecognized fields."""
@@ -63,8 +95,9 @@ class EventStore:
             logger.error(f'Error loading disruption data: {e}')
 
     def save_data(self):
-        """Save disruption data to file."""
+        """Save disruption data to file with cleanup."""
         try:
+            self.cleanup_old_events()
             data = {'disruptions': dict(self.disruptions)}
             os.makedirs(os.path.dirname(self.data_file), exist_ok=True)
             with open(self.data_file, 'w') as f:
@@ -154,9 +187,13 @@ def init_kubernetes_client():
     try:
         config.load_incluster_config()
         logger.info("Using in-cluster configuration")
-    except config.ConfigException:
-        config.load_kube_config()
-        logger.info("Using local kubeconfig")
+    except ConfigException:  # Fix: use imported ConfigException
+        try:
+            config.load_kube_config()
+            logger.info("Using local kubeconfig")
+        except Exception as e:
+            logger.error(f"Failed to load kubeconfig: {e}")
+            raise
     return client.CoreV1Api()
 
 def watch_pods(v1):
@@ -237,6 +274,19 @@ def workload_details(key):
 @app.route('/healthz')
 def healthz():
     return {'status': 'ok'}
+
+@app.route('/settings', methods=['GET', 'POST'])
+def settings():
+    if request.method == 'POST':
+        try:
+            retention_hours = int(request.json.get('retention_hours', 336))
+            event_store.retention_hours = max(1, min(8760, retention_hours))  # 1 hour to 1 year
+            event_store.save_settings()
+            return {'status': 'ok', 'retention_hours': event_store.retention_hours}
+        except Exception as e:
+            return {'status': 'error', 'message': str(e)}, 400
+    
+    return {'retention_hours': event_store.retention_hours}
 
 def run_server(server):
     """Run the server in a separate thread."""

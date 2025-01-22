@@ -16,6 +16,9 @@
             <h1>Workload Disruption Monitor</h1>
             <div class="refresh-indicator">
                 <i class="fas fa-sync"></i> 5s
+                <button class="settings-button" onclick="showSettings()">
+                    <i class="fas fa-cog"></i>
+                </button>
             </div>
         </div>
     </div>
@@ -103,7 +106,23 @@
             </div>
         </div>
     </div>
-    
+
+    <!-- Add settings modal -->
+    <div id="settings-modal" class="modal">
+        <div class="modal-content">
+            <h3>Settings</h3>
+            <div class="form-group">
+                <label for="retention">Event Retention (hours):</label>
+                <input type="number" id="retention" min="1" max="8760" value="336">
+                <div class="help-text">Events older than this will be automatically removed. (1 hour to 1 year)</div>
+            </div>
+            <div class="modal-actions">
+                <button onclick="hideSettings()">Cancel</button>
+                <button onclick="saveSettings()" class="primary">Save</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/js/app.js"></script>
 </body>
 </html>
