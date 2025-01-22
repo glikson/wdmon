@@ -6,6 +6,7 @@ from threading import Thread
 from collections import defaultdict
 import datetime
 import sys
+from typing import Optional
 
 # Initialize logger first
 logger = logging.getLogger(__name__)
@@ -20,7 +21,29 @@ app = Flask(__name__, static_url_path='/static', static_folder='static')
 # Store disruptions in memory
 disruptions = defaultdict(list)
 
+def is_duplicate_event(deployment_name: str, pod_name: str, window_seconds: int = 5) -> Optional[dict]:
+    """Check if there's a recent event for the same pod within the time window."""
+    if not disruptions[deployment_name]:
+        return None
+    
+    current_time = datetime.datetime.now()
+    recent_events = [
+        d for d in disruptions[deployment_name]
+        if d['pod'] == pod_name and
+        (current_time - datetime.datetime.strptime(d['timestamp'], '%Y-%m-%d %H:%M:%S')).total_seconds() <= window_seconds
+    ]
+    
+    return recent_events[0] if recent_events else None
+
 def track_disruption(deployment_name, container_name, pod_name, reason, timestamp):
+    # Check for recent events for the same pod
+    recent_event = is_duplicate_event(deployment_name, pod_name)
+    
+    if recent_event:
+        # If recent event exists, log it but don't track
+        logger.info(f"Skipping duplicate event for pod {pod_name} (previous event: {recent_event['reason']} at {recent_event['timestamp']})")
+        return
+    
     msg = f"Container {container_name} in {pod_name} exited with 137 ({reason})"
     print(msg)  # Print to stdout
     logger.info(msg)  # Log to logger
