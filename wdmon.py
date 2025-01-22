@@ -2,11 +2,13 @@ import time
 from kubernetes import client, config, watch
 import logging
 from flask import Flask, render_template, send_from_directory
-from threading import Thread
+from threading import Thread, Event
 from collections import defaultdict
 import datetime
 import sys
 from typing import Optional
+import signal
+from waitress.server import create_server
 
 # Initialize logger first
 logger = logging.getLogger(__name__)
@@ -20,6 +22,19 @@ app = Flask(__name__, static_url_path='/static', static_folder='static')
 
 # Store disruptions in memory
 disruptions = defaultdict(list)
+
+# Add global flag for graceful shutdown
+shutdown_requested = False
+
+# Add shutdown event
+shutdown_event = Event()
+
+def signal_handler(signum, frame):
+    """Handle termination signals gracefully."""
+    global shutdown_requested
+    logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+    shutdown_requested = True
+    shutdown_event.set()
 
 def is_duplicate_event(deployment_name: str, pod_name: str, window_seconds: int = 5) -> Optional[dict]:
     """Check if there's a recent event for the same pod within the time window."""
@@ -68,7 +83,7 @@ def get_deployment_for_pod(v1, pod):
     return None
 
 def watch_pods():
-    while True:
+    while not shutdown_requested:
         try:
             config.load_incluster_config()
             logger.info("Using in-cluster configuration")
@@ -82,6 +97,9 @@ def watch_pods():
         try:
             logger.info("Starting to watch pods in default namespace")
             for event in w.stream(v1.list_namespaced_pod, namespace='default'):
+                if shutdown_requested:
+                    logger.info("Shutdown requested, stopping pod watch")
+                    break
                 if event["type"] == "MODIFIED":
                     pod = event["object"]
                     deployment_name = get_deployment_for_pod(v1, pod)
@@ -140,16 +158,44 @@ def deployment_details(name):
 def healthz():
     return {'status': 'ok'}
 
+def run_server(server):
+    """Run the server in a separate thread."""
+    try:
+        server.run()
+    except Exception as e:
+        logger.error(f"Server error: {e}")
+    finally:
+        logger.info("Server thread completed")
+
 def main():
     try:
+        # Set up signal handlers
+        signal.signal(signal.SIGTERM, signal_handler)
+        signal.signal(signal.SIGINT, signal_handler)
+        
         # Start the pod watcher in a separate thread
         watch_thread = Thread(target=watch_pods, daemon=True)
         watch_thread.start()
         
         logger.info("Starting Flask server on port 8080...")
-        # Use production server instead of development server
-        from waitress import serve
-        serve(app, host='0.0.0.0', port=8080)
+        server = create_server(app, host='0.0.0.0', port=8080)
+        
+        # Run server in a separate thread
+        server_thread = Thread(target=run_server, args=(server,))
+        server_thread.start()
+        
+        # Wait for shutdown signal
+        shutdown_event.wait()
+        
+        logger.info("Initiating graceful shutdown...")
+        server.close()
+        
+        # Wait for threads to complete (with timeout)
+        server_thread.join(timeout=3)
+        watch_thread.join(timeout=3)
+        
+        logger.info("Shutdown complete")
+        
     except Exception as e:
         logger.error(f"Failed to start server: {e}")
         sys.exit(1)
