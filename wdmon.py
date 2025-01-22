@@ -6,9 +6,11 @@ from threading import Thread, Event
 from collections import defaultdict
 import datetime
 import sys
-from typing import Optional
+from typing import Optional, Dict, List
 import signal
 from waitress.server import create_server
+import json
+import os
 
 # Initialize logger first
 logger = logging.getLogger(__name__)
@@ -20,8 +22,70 @@ logging.basicConfig(
 
 app = Flask(__name__, static_url_path='/static', static_folder='static')
 
-# Store disruptions in memory
-disruptions = defaultdict(list)
+# Add schema version - increment this when schema changes
+SCHEMA_VERSION = 1
+
+def is_running_in_kubernetes():
+    """Check if running inside Kubernetes by looking for service account token."""
+    return os.path.exists('/var/run/secrets/kubernetes.io/serviceaccount/token')
+
+class EventStore:
+    def __init__(self, data_dir: str = None):
+        if data_dir is None:
+            # Use current directory for local development, /data for kubernetes
+            data_dir = '/data' if is_running_in_kubernetes() else '/tmp'
+            logger.info(f"Using {data_dir} directory for persistence")
+        
+        self.data_file = os.path.join(data_dir, 'disruptions.json')
+        self.disruptions: Dict[str, List[dict]] = defaultdict(list)
+        self.load_data()
+
+    def load_data(self):
+        """Load disruption data from file, ignore records with unrecognized fields."""
+        if not os.path.exists(self.data_file):
+            return
+
+        try:
+            with open(self.data_file, 'r') as f:
+                data = json.load(f)
+                if not isinstance(data, dict) or 'disruptions' not in data:
+                    return
+                
+                # Load only records with expected fields
+                expected_fields = {'container', 'pod', 'reason', 'timestamp'}
+                for deployment, events in data['disruptions'].items():
+                    valid_events = [
+                        event for event in events
+                        if isinstance(event, dict) and all(f in event for f in expected_fields)
+                    ]
+                    if valid_events:
+                        self.disruptions[deployment].extend(valid_events)
+                
+                logger.info(f'Loaded {sum(len(v) for v in self.disruptions.values())} events')
+        except Exception as e:
+            logger.error(f'Error loading disruption data: {e}')
+
+    def save_data(self):
+        """Save disruption data to file."""
+        try:
+            data = {'disruptions': dict(self.disruptions)}
+            os.makedirs(os.path.dirname(self.data_file), exist_ok=True)
+            with open(self.data_file, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            logger.error(f'Error saving disruption data: {e}')
+
+    def add_event(self, deployment_name: str, event: dict):
+        """Add new event and persist to disk."""
+        self.disruptions[deployment_name].append(event)
+        self.save_data()
+
+    def get_events(self, deployment_name: str) -> List[dict]:
+        """Get events for a deployment."""
+        return self.disruptions[deployment_name]
+
+# Initialize event store
+event_store = EventStore()
 
 # Add global flag for graceful shutdown
 shutdown_requested = False
@@ -38,12 +102,12 @@ def signal_handler(signum, frame):
 
 def is_duplicate_event(deployment_name: str, pod_name: str, window_seconds: int = 5) -> Optional[dict]:
     """Check if there's a recent event for the same pod within the time window."""
-    if not disruptions[deployment_name]:
+    if not event_store.get_events(deployment_name):
         return None
     
     current_time = datetime.datetime.now()
     recent_events = [
-        d for d in disruptions[deployment_name]
+        d for d in event_store.get_events(deployment_name)
         if d['pod'] == pod_name and
         (current_time - datetime.datetime.strptime(d['timestamp'], '%Y-%m-%d %H:%M:%S')).total_seconds() <= window_seconds
     ]
@@ -55,20 +119,21 @@ def track_disruption(deployment_name, container_name, pod_name, reason, timestam
     recent_event = is_duplicate_event(deployment_name, pod_name)
     
     if recent_event:
-        # If recent event exists, log it but don't track
-        logger.info(f"Skipping duplicate event for pod {pod_name} (previous event: {recent_event['reason']} at {recent_event['timestamp']})")
+        logger.info(f"Skipping duplicate event for pod {pod_name}")
         return
     
     msg = f"Container {container_name} in {pod_name} exited with 137 ({reason})"
-    print(msg)  # Print to stdout
-    logger.info(msg)  # Log to logger
-    # Store timestamp as string immediately
-    disruptions[deployment_name].append({
+    print(msg)
+    logger.info(msg)
+    
+    event = {
         'container': container_name,
         'pod': pod_name,
         'reason': reason,
         'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S')
-    })
+    }
+    
+    event_store.add_event(deployment_name, event)
 
 def get_deployment_for_pod(v1, pod):
     owner_references = pod.metadata.owner_references or []
@@ -82,18 +147,19 @@ def get_deployment_for_pod(v1, pod):
                         return rs_owner.name
     return None
 
-def watch_pods():
-    while not shutdown_requested:
-        try:
-            config.load_incluster_config()
-            logger.info("Using in-cluster configuration")
-        except config.ConfigException:
-            config.load_kube_config()
-            logger.info("Using local kubeconfig")
+def init_kubernetes_client():
+    """Initialize Kubernetes client configuration."""
+    try:
+        config.load_incluster_config()
+        logger.info("Using in-cluster configuration")
+    except config.ConfigException:
+        config.load_kube_config()
+        logger.info("Using local kubeconfig")
+    return client.CoreV1Api()
 
-        v1 = client.CoreV1Api()
+def watch_pods(v1):
+    while not shutdown_requested:
         w = watch.Watch()
-        
         try:
             logger.info("Starting to watch pods in default namespace")
             for event in w.stream(v1.list_namespaced_pod, namespace='default'):
@@ -125,7 +191,7 @@ def index():
     deployments = apps_v1.list_namespaced_deployment(namespace='default')
     stats = []
     for dep in deployments.items:
-        dep_disruptions = disruptions[dep.metadata.name]
+        dep_disruptions = event_store.get_events(dep.metadata.name)
         
         # Find the latest disruption timestamp
         if dep_disruptions:
@@ -147,11 +213,10 @@ def index():
 @app.route('/deployment/<name>')
 def deployment_details(name):
     disruptions_list = sorted(
-        disruptions[name],
+        event_store.get_events(name),
         key=lambda x: x['timestamp'],
         reverse=True
     )
-    # No need to convert timestamps as they're already strings
     return {'disruptions': disruptions_list}
 
 @app.route('/healthz')
@@ -163,37 +228,32 @@ def run_server(server):
     try:
         server.run()
     except Exception as e:
-        logger.error(f"Server error: {e}")
+        if not shutdown_requested:
+            logger.error(f"Server error: {e}")
     finally:
-        logger.info("Server thread completed")
+        logger.info("Server thread stopped")
 
 def main():
     try:
+        # Initialize Kubernetes client
+        v1_client = init_kubernetes_client()
+        
         # Set up signal handlers
         signal.signal(signal.SIGTERM, signal_handler)
         signal.signal(signal.SIGINT, signal_handler)
         
         # Start the pod watcher in a separate thread
-        watch_thread = Thread(target=watch_pods, daemon=True)
+        watch_thread = Thread(target=watch_pods, args=(v1_client,), daemon=True)
         watch_thread.start()
         
+        # Start the server in a separate thread
         logger.info("Starting Flask server on port 8080...")
         server = create_server(app, host='0.0.0.0', port=8080)
-        
-        # Run server in a separate thread
-        server_thread = Thread(target=run_server, args=(server,))
+        server_thread = Thread(target=run_server, args=(server,), daemon=True)
         server_thread.start()
         
         # Wait for shutdown signal
         shutdown_event.wait()
-        
-        logger.info("Initiating graceful shutdown...")
-        server.close()
-        
-        # Wait for threads to complete (with timeout)
-        server_thread.join(timeout=3)
-        watch_thread.join(timeout=3)
-        
         logger.info("Shutdown complete")
         
     except Exception as e:
